@@ -1,3 +1,5 @@
+WORKER_COUNT ?= 8
+
 check:
 	poetry run ruff check --fix mapreduce/
 
@@ -11,7 +13,9 @@ coordinator:
 	poetry run python mapreduce/coordinator/coordinator.py $(ARGS)
 
 worker:
-	poetry run python mapreduce/worker/worker.py $(ARGS)
+	for i in $$(seq 1 $(WORKER_COUNT)); do \
+		poetry run python mapreduce/worker/worker.py $(ARGS) & \
+	done
 
 .PHONY: check format run coordinator
 .PHONY: check format run worker 

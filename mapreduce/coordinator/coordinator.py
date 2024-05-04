@@ -1,6 +1,7 @@
 import argparse
 import os
 import threading
+import time
 from pathlib import Path
 from typing import Any
 from xmlrpc.server import SimpleXMLRPCServer
@@ -8,8 +9,7 @@ from xmlrpc.server import SimpleXMLRPCServer
 from loguru import logger
 
 from mapreduce.models.status import Status
-from mapreduce.models.task import Task
-from mapreduce.models.type import Type
+from mapreduce.models.task import MapTask, ReduceTask
 
 ROOT_DIR = Path(__file__).parent.parent.parent
 DATA_DIR = os.path.join(ROOT_DIR, "data")
@@ -18,26 +18,78 @@ DATA_DIR = os.path.join(ROOT_DIR, "data")
 class Coordinator:
     def __init__(self, input_files: list[str], n_reduce: int):
         self.input_files = input_files
-        self.task_queue = [
-            Task(id=i, type=Type.MAP, name=input_files[i], status=Status.READY)
+        self.map_task_queue = [
+            MapTask(id=i, name=input_files[i], status=Status.READY)
             for i in range(len(input_files))
         ]
+        self.reduce_task_queue = [
+            ReduceTask(partition=i, status=Status.READY) for i in range(n_reduce)
+        ]
+
         self.lock = threading.Lock()
 
-    def get_task(self) -> dict[str, Any]:
+    def get_map_task(self) -> dict[str, Any] | None:
         with self.lock:
-            task = next(task for task in self.task_queue if task.status == Status.READY)
-            return task.model_dump()
+            try:
+                task = next(
+                    task for task in self.map_task_queue if task.status == Status.READY
+                )
+            except StopIteration:
+                return None
 
-    def update_task(self, id: int, type: str, status: str) -> None:
+            task.status = Status.RUNNING
+            return task.model_dump_json()
+
+    def complete_map_task(self, id: int) -> None:
         with self.lock:
-            task = next(iter(task for task in self.task_queue if task.id == id), None)
-            if task:
-                task.type = type
-                task.status = status
+            try:
+                task = next(task for task in self.map_task_queue if task.id == id)
+            except StopIteration:
+                raise
 
-    def has_task(self) -> bool:
-        return any(task.status == Status.READY for task in self.task_queue)
+            task.status = Status.DONE
+
+    def map_done(self) -> bool:
+        return all(task.status == Status.DONE for task in self.map_task_queue)
+
+    def get_reduce_task(self) -> dict[str, Any] | None:
+        with self.lock:
+            try:
+                task = next(
+                    task
+                    for task in self.reduce_task_queue
+                    if task.status == Status.READY
+                )
+            except StopIteration:
+                return None
+
+            task.status = Status.RUNNING
+            return task.model_dump_json()
+
+    def complete_reduce_task(self, partition: str) -> None:
+        with self.lock:
+            try:
+                task = next(
+                    task
+                    for task in self.reduce_task_queue
+                    if task.partition == partition
+                )
+            except StopIteration:
+                raise
+
+            task.status = Status.DONE
+
+    def reduce_done(self) -> bool:
+        return all(task.status == Status.DONE for task in self.reduce_task_queue)
+
+
+def check_tasks_and_stop_server(coordinator: Coordinator, server: SimpleXMLRPCServer):
+    while True:
+        if coordinator.map_done() and coordinator.reduce_done():
+            logger.info("All tasks completed. Stopping the server.")
+            server.shutdown()
+            break
+        time.sleep(5)
 
 
 def run_coordinator() -> None:
@@ -55,6 +107,12 @@ def run_coordinator() -> None:
     server.register_instance(rpc_server)
 
     logger.info(f"Coordinator listening on port {port}...")
+
+    stop_check_thread = threading.Thread(
+        target=check_tasks_and_stop_server, args=(rpc_server, server)
+    )
+    stop_check_thread.start()
+
     server.serve_forever()
 
 

@@ -1,13 +1,18 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from .status import Status
 
 
-class Task(BaseModel):
+class MapTask(BaseModel):
+    model_config = ConfigDict(use_enum_values=True)
+
     id: int
-    type: str
     name: str
     status: Status
 
-    class Config:
-        use_enum_values = True
+
+class ReduceTask(BaseModel):
+    model_config = ConfigDict(use_enum_values=True)
+
+    partition: int
+    status: Status
