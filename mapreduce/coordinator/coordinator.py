@@ -18,15 +18,21 @@ DATA_DIR = os.path.join(ROOT_DIR, "data")
 class Coordinator:
     def __init__(self, input_files: list[str], n_reduce: int):
         self.input_files = input_files
+        self.n_reduce = n_reduce
+
         self.map_task_queue = [
             MapTask(id=i, name=input_files[i], status=Status.READY)
             for i in range(len(input_files))
         ]
+
         self.reduce_task_queue = [
             ReduceTask(partition=i, status=Status.READY) for i in range(n_reduce)
         ]
 
         self.lock = threading.Lock()
+
+    def get_num_reduce(self) -> int:
+        return self.n_reduce
 
     def get_map_task(self) -> dict[str, Any] | None:
         with self.lock:
@@ -66,7 +72,7 @@ class Coordinator:
             task.status = Status.RUNNING
             return task.model_dump_json()
 
-    def complete_reduce_task(self, partition: str) -> None:
+    def complete_reduce_task(self, partition: int) -> None:
         with self.lock:
             try:
                 task = next(

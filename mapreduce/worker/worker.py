@@ -5,14 +5,16 @@ import json
 import os
 import uuid
 import xmlrpc.client
+from collections import defaultdict
 from pathlib import Path
 from typing import Callable
 
 from loguru import logger
 
+from mapreduce.models.key_value import KeyValue
 from mapreduce.models.task import MapTask, ReduceTask
 
-MapFunc = Callable[[str, str], list[dict[str, str]]]
+MapFunc = Callable[[str, str], list[KeyValue]]
 ReduceFunc = Callable[[str, list[str]], str]
 
 ROOT_DIR = Path(__file__).parent.parent.parent
@@ -53,27 +55,31 @@ class Worker:
                 self.reducer(task=task)
 
     def mapper(self, task: MapTask) -> None:
+        n_reduce = self.server.get_num_reduce()
+
         with open(f"{DATA_DIR}/{task.name}") as f:
             content = f.read()
             kva = self.mapf(task.name, content)
 
-        partitions = {}
-        for kv in kva:
-            for key, value in kv.items():
-                partition = self.partitioner(key=key, n_reduce=10)
-                partitions.setdefault(partition, []).append({key: value})
+        kva.sort(key=lambda x: x.key)
 
-        for partition, data in partitions.items():
-            out_file = f"mr-{task.id}-{partition}"
-            with open(f"{INTERMEDIARY_DIR}/{out_file}.json", "a") as of:
-                json.dump(data, of)
+        intermediate = defaultdict(list)
+        for kv in kva:
+            partition = self.partitioner(key=kv.key, n_reduce=n_reduce)
+            intermediate[partition].append(kv)
+
+        for partition, kva in intermediate.items():
+            intermediate_file = f"mr-{task.id}-{partition}"
+            partitioned_kva = [item.model_dump() for item in kva]
+            with open(f"{INTERMEDIARY_DIR}/{intermediate_file}.json", "w") as of:
+                json.dump(partitioned_kva, of)
 
         self.server.complete_map_task(task.id)
 
     def reducer(self, task: ReduceTask):
         partition = task.partition
 
-        intermediate: list[list[dict[str, str]]] = []
+        intermediate: list[KeyValue] = []
         for dir_path, _, file_names in os.walk(INTERMEDIARY_DIR):
             for file_name in file_names:
                 if file_name.endswith(f"-{partition}.json"):
@@ -81,26 +87,23 @@ class Worker:
                     if os.path.isfile(file_path):
                         with open(file_path, encoding="utf-8") as file:
                             kva = json.load(file)
-                            intermediate.append(kva)
+                            kva = [KeyValue.model_validate(item) for item in kva]
+                            intermediate.extend(kva)
 
-        shuffled_data = {}
-        for items in intermediate:
-            for item in items:
-                for key, value in item.items():
-                    if key not in shuffled_data:
-                        shuffled_data[key] = [value]
-                    else:
-                        shuffled_data[key].append(value)
+        intermediate.sort(key=lambda x: x.key)
 
-        for key, values in shuffled_data.items():
-            val = self.reducef(key, values)
+        tmp = defaultdict(list)
+        for item in intermediate:
+            tmp[item.key].append(item.value)
 
-            out_file = f"mr-out-{partition}"
-            with open(f"{OUT_DIR}/{out_file}", "a") as of:
+        out_file = f"mr-out-{partition}"
+        with open(f"{OUT_DIR}/{out_file}", "w") as of:
+            for key, values in tmp.items():
+                val = self.reducef(key, values)
                 of.write(f"{key} {val}")
                 of.write("\n")
 
-        self.server.complete_reduce_task(task.partition)
+        self.server.complete_reduce_task(partition)
 
     @staticmethod
     def partitioner(key: str, n_reduce: int) -> int:
@@ -136,7 +139,8 @@ def run_worker() -> None:
     task = args.task
     cport = args.cport
 
-    Worker(task=task, coordinator_port=cport)()
+    worker = Worker(task=task, coordinator_port=cport)
+    worker()
 
 
 if __name__ == "__main__":
