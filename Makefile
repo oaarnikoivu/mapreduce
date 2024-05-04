@@ -22,5 +22,4 @@ worker:
 	cat output/mr-out-* | sort > mr-out
 
 
-.PHONY: check format run coordinator
-.PHONY: check format run worker 
+.PHONY: check format run coordinator worker
