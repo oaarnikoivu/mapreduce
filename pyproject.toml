@@ -1,0 +1,37 @@
+[tool.poetry]
+name = "mapreduce"
+version = "0.1.0"
+description = ""
+authors = ["Oliver Aarnikoivu <oliveraarnikoivu@icloud.com>"]
+license = "MIT"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+pydantic = "^2.7.1"
+
+
+[tool.poetry.group.dev.dependencies]
+ruff = "^0.4.3"
+pre-commit = "^3.7.0"
+
+[tool.ruff.lint]
+# Add the `line-too-long` rule to the enforced rule set.
+select = [
+    # pycodestyle
+    "E",
+    # Pyflakes
+    "F",
+    # pyupgrade
+    "UP",
+    # flake8-bugbear
+    "B",
+    # flake8-simplify
+    "SIM",
+    # isort
+    "I",
+]
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
