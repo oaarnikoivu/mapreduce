@@ -1,11 +1,18 @@
 import argparse
+import os
 import threading
+from pathlib import Path
 from typing import Any
 from xmlrpc.server import SimpleXMLRPCServer
 
-from models.status import Status
-from models.task import Task
-from models.type import Type
+from loguru import logger
+
+from mapreduce.models.status import Status
+from mapreduce.models.task import Task
+from mapreduce.models.type import Type
+
+ROOT_DIR = Path(__file__).parent.parent.parent
+DATA_DIR = os.path.join(ROOT_DIR, "data")
 
 
 class Coordinator:
@@ -38,19 +45,16 @@ def run_coordinator() -> None:
     parser.add_argument(
         "--port", type=int, required=True, help="MapReduce coordinator port."
     )
-    parser.add_argument(
-        "--input", type=str, required=True, help="MapReduce input files."
-    )
     args = parser.parse_args()
 
     port = args.port
-    input_files = args.input.split(",")
 
+    input_files = os.listdir(DATA_DIR)
     server = SimpleXMLRPCServer(("localhost", port), allow_none=True)
     rpc_server = Coordinator(input_files=input_files, n_reduce=10)
     server.register_instance(rpc_server)
 
-    print(f"RPC server listening on port {port}...")
+    logger.info(f"Coordinator listening on port {port}...")
     server.serve_forever()
 
 
