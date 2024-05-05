@@ -1,5 +1,6 @@
 import argparse
 import errno
+import hashlib
 import importlib
 import json
 import os
@@ -59,13 +60,13 @@ class Worker:
 
         with open(f"{DATA_DIR}/{task.name}") as f:
             content = f.read()
-            kva = self.mapf(task.name, content)
 
+        kva = self.mapf(task.name, content)
         kva.sort(key=lambda x: x.key)
 
         intermediate = defaultdict(list)
         for kv in kva:
-            partition = self.partitioner(key=kv.key, n_reduce=n_reduce)
+            partition = self.ihash(kv.key) % n_reduce
             intermediate[partition].append(kv)
 
         for partition, kva in intermediate.items():
@@ -106,10 +107,9 @@ class Worker:
         self.server.complete_reduce_task(partition)
 
     @staticmethod
-    def partitioner(key: str, n_reduce: int) -> int:
-        hash_code = hash(key)
-        partition = hash_code % n_reduce
-        return partition
+    def ihash(key):
+        h = hashlib.sha1(key.encode())
+        return int(h.hexdigest(), 16) & 0x7FFFFFFF
 
     @staticmethod
     def load_plugin(task: str) -> tuple[MapFunc, ReduceFunc]:
