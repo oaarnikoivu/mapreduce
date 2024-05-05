@@ -1,5 +1,6 @@
 import argparse
 import errno
+import glob
 import hashlib
 import importlib
 import json
@@ -81,15 +82,14 @@ class Worker:
         partition = task.partition
 
         intermediate: list[KeyValue] = []
-        for dir_path, _, file_names in os.walk(INTERMEDIARY_DIR):
-            for file_name in file_names:
-                if file_name.endswith(f"-{partition}.json"):
-                    file_path = os.path.join(dir_path, file_name)
-                    if os.path.isfile(file_path):
-                        with open(file_path, encoding="utf-8") as file:
-                            kva = json.load(file)
-                            kva = [KeyValue.model_validate(item) for item in kva]
-                            intermediate.extend(kva)
+
+        file_paths = glob.glob(os.path.join(INTERMEDIARY_DIR, f"*-{partition}.json"))
+        for file_path in file_paths:
+            if os.path.isfile(file_path):
+                with open(file_path, encoding="utf-8") as file:
+                    kva = json.load(file)
+                    kva = [KeyValue.model_validate(item) for item in kva]
+                    intermediate.extend(kva)
 
         intermediate.sort(key=lambda x: x.key)
 
