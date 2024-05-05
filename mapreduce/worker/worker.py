@@ -107,7 +107,7 @@ class Worker:
         self.server.complete_reduce_task(partition)
 
     @staticmethod
-    def ihash(key):
+    def ihash(key: str) -> int:
         h = hashlib.sha1(key.encode())
         return int(h.hexdigest(), 16) & 0x7FFFFFFF
 
